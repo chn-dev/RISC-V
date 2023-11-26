@@ -67,6 +67,7 @@ void RISCV::setRegister( int r, uint32_t v )
 void RISCV::unknownOpcode()
 {
    printf("\n");
+   exit( 1 );
 }
 
 
@@ -357,6 +358,13 @@ void RISCV::step()
                      break;
                   }
 
+                  case 0x01: // MUL
+                  {
+                     setRegister( rd, (uint32_t)( ( (int64_t)getRegister( rs1 ) * (int64_t)getRegister( rs2 ) ) & 0xffffffff ) );
+                     m_PC += 4;
+                     break;
+                  }
+
                   case 0x20: // SUB
                   {
                      setRegister( rd, (int32_t)getRegister( rs1 ) - (int32_t)getRegister( rs2 ) );
@@ -380,6 +388,13 @@ void RISCV::step()
                   case 0: // SLL
                   {
                      setRegister( rd, getRegister( rs1 ) << ( getRegister( rs2 ) & 0x1f ) );
+                     m_PC += 4;
+                     break;
+                  }
+
+                  case 1: // MULH
+                  {
+                     setRegister( rd, ( ( (int64_t)getRegister( rs1 ) * (int64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff );
                      m_PC += 4;
                      break;
                   }
@@ -410,6 +425,13 @@ void RISCV::step()
                      break;
                   }
 
+                  case 1: // MULHSU
+                  {
+                     setRegister( rd, (uint32_t)( ( ( (int64_t)getRegister( rs1 ) * (uint64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
+                     m_PC += 4;
+                     break;
+                  }
+
                   default:
                   {
                      unknownOpcode();
@@ -436,6 +458,13 @@ void RISCV::step()
                      break;
                   }
 
+                  case 1: // MULHU
+                  {
+                     setRegister( rd, (uint32_t)( ( ( (uint64_t)getRegister( rs1 ) * (uint64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
+                     m_PC += 4;
+                     break;
+                  }
+
                   default:
                   {
                      unknownOpcode();
@@ -456,6 +485,23 @@ void RISCV::step()
                      break;
                   }
 
+                  case 1: // DIV
+                  {
+                     if( getRegister( rs2 ) == 0 )
+                     {
+                        setRegister( rd, 0xffffffff );
+                     } else
+                     if( ( getRegister( rs1 ) == 0x80000000 ) && ( getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
+                     {
+                        setRegister( rd, 0x80000000 );
+                     } else
+                     {
+                        setRegister( rd, (uint32_t)( (int32_t)getRegister( rs1 ) / (int32_t)getRegister( rs2 ) ) );
+                     }
+                     m_PC += 4;
+                     break;
+                  }
+
                   default:
                   {
                      unknownOpcode();
@@ -472,6 +518,19 @@ void RISCV::step()
                   case 0: // SRL
                   {
                      setRegister( rd, getRegister( rs1 ) >> ( getRegister( rs2 ) & 0x1f ) );
+                     m_PC += 4;
+                     break;
+                  }
+
+                  case 1: // DIVU
+                  {
+                     if( getRegister( rs2 ) == 0 )
+                     {
+                        setRegister( rd, 0xffffffff );
+                     } else
+                     {
+                        setRegister( rd, getRegister( rs1 ) / getRegister( rs2 ) );
+                     }
                      m_PC += 4;
                      break;
                   }
@@ -503,6 +562,23 @@ void RISCV::step()
                      break;
                   }
 
+                  case 1: // REM
+                  {
+                     if( getRegister( rs2 ) == 0 )
+                     {
+                        setRegister( rd, getRegister( rs1 ) );
+                     } else
+                     if( ( getRegister( rs1 ) == 0x80000000 ) && ( getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
+                     {
+                        setRegister( rd, 0 );
+                     } else
+                     {
+                        setRegister( rd, (uint32_t)( (int32_t)getRegister( rs1 ) % (int32_t)getRegister( rs2 ) ) );
+                     }
+                     m_PC += 4;
+                     break;
+                  }
+
                   default:
                   {
                      unknownOpcode();
@@ -519,6 +595,19 @@ void RISCV::step()
                   case 0: // AND
                   {
                      setRegister( rd, getRegister( rs1 ) & getRegister( rs2 ) );
+                     m_PC += 4;
+                     break;
+                  }
+
+                  case 1: // REMU
+                  {
+                     if( getRegister( rs2 ) == 0 )
+                     {
+                        setRegister( rd, getRegister( rs1 ) );
+                     } else
+                     {
+                        setRegister( rd, getRegister( rs1 ) % getRegister( rs2 ) );
+                     }
                      m_PC += 4;
                      break;
                   }
