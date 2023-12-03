@@ -3,6 +3,80 @@
 
 #include "RISCV.h"
 
+RISCV::Instruction::Instruction( uint32_t address, uint32_t code, std::string instruction, std::vector<std::string> parameters, std::string comment )
+{
+   set( address, code, instruction, parameters, comment );
+}
+
+
+RISCV::Instruction::Instruction()
+{
+}
+
+
+RISCV::Instruction::~Instruction()
+{
+}
+
+
+std::string RISCV::Instruction::toString() const
+{
+   std::string r = stdformat( "{}\t{}", m_Instruction, util::join( m_Parameters, "," ) );
+   if( m_Comment.size() > 0 )
+   {
+      r = r + " # " + m_Comment;
+   }
+
+   return( r );
+}
+
+
+void RISCV::Instruction::set( uint32_t address, uint32_t code, std::string instruction, std::vector<std::string> parameters, std::string comment )
+{
+   m_Address = address;
+   m_Code = code;
+   m_Instruction = instruction;
+   m_Parameters = parameters;
+   m_Comment = comment;
+}
+
+
+void RISCV::Instruction::set( const Instruction &o )
+{
+   set( o.getAddress(), o.getCode(), o.getInstruction(), o.getParameters(), o.getComment() );
+}
+
+
+uint32_t RISCV::Instruction::getAddress() const
+{
+   return( m_Address );
+}
+
+
+uint32_t RISCV::Instruction::getCode() const
+{
+   return( m_Code );
+}
+
+
+std::string RISCV::Instruction::getInstruction() const
+{
+   return( m_Instruction );
+}
+
+
+std::vector<std::string> RISCV::Instruction::getParameters() const
+{
+   return( m_Parameters );
+}
+
+
+std::string RISCV::Instruction::getComment() const
+{
+   return( m_Comment );
+}
+
+
 RISCV::RISCV( MemoryInterface *pMem ) :
    m_pMemory( pMem )
 {
@@ -67,13 +141,13 @@ void RISCV::setRegister( int r, uint32_t v )
 void RISCV::unknownOpcode()
 {
    printf("\n");
+   while(1);
    exit( 1 );
 }
 
 
-void RISCV::step()
+uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *pInstruction )
 {
-   uint32_t instr = m_pMemory->readMem32( m_PC );
    uint8_t opcode = instr & 0x7f;
 
    uint8_t rd = ( instr >> 7 ) & 0x1f;
@@ -104,9 +178,14 @@ void RISCV::step()
    if( instr & 0x80000000 )
       bTypeImm |= 0b11111111111 << 21;
 
-   uint32_t oldPC = m_PC;
+   bool oldPCValid = false;
+   if( pCPU )
+   {
+      oldPC = pCPU->m_PC;
+      oldPCValid = true;
+   }
 
-   printf( "PC=0x%08x\n", m_PC );
+   uint32_t newPC = oldPC;
 
    switch( opcode )
    {
@@ -116,48 +195,121 @@ void RISCV::step()
          {
             case 0: // LB
             {
-               uint32_t d = m_pMemory->readMem8( getRegister( rs1 ) + iTypeImm );
-               if( d & 0x80 )
-                  d |= 0xffffff00;
-               setRegister( rd, d );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  uint32_t d = pCPU->readMem8( pCPU->getRegister( rs1 ) + iTypeImm );
+                  if( d & 0x80 )
+                     d |= 0xffffff00;
+                  pCPU->setRegister( rd, d );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "lb",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        stdformat( "{}({})", iTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             case 1: // LH
             {
-               uint32_t d = m_pMemory->readMem16( getRegister( rs1 ) + iTypeImm );
-               if( d & 0x8000 )
-                  d |= 0xffff0000;
-               setRegister( rd, d );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  uint32_t d = pCPU->readMem16( pCPU->getRegister( rs1 ) + iTypeImm );
+                  if( d & 0x8000 )
+                     d |= 0xffff0000;
+                  pCPU->setRegister( rd, d );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "lh",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        stdformat( "{}({})", iTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             case 2: // LW
             {
-               setRegister( rd, m_pMemory->readMem32( getRegister( rs1 ) + iTypeImm ) );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->readMem32( pCPU->getRegister( rs1 ) + iTypeImm ) );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "lw",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        stdformat( "{}({})", iTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             case 4: // LBU
             {
-               setRegister( rd, m_pMemory->readMem8( getRegister( rs1 ) + iTypeImm ) );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->readMem8( pCPU->getRegister( rs1 ) + iTypeImm ) );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "lbu",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        stdformat( "{}({})", iTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             case 5: // LHU
             {
-               setRegister( rd, m_pMemory->readMem16( getRegister( rs1 ) + iTypeImm ) );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->readMem16( pCPU->getRegister( rs1 ) + iTypeImm ) );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "lbu",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        stdformat( "{}({})", iTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             default:
             {
-               unknownOpcode();
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
                break;
             }
          }
@@ -170,15 +322,23 @@ void RISCV::step()
          {
             case 0: // ADDI
             {
-               fprintf( stderr, "[0x%08x] - 0x%08x: addi\t%s,%s,%d # -> 0x%08x\n",
-                  m_PC,
-                  instr,
-                  registerName( rd ).c_str(),
-                  registerName( rs1 ).c_str(),
-                  iTypeImm,
-                  getRegister( rs1 ) + iTypeImm );
-               setRegister( rd, getRegister( rs1 ) + iTypeImm );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) + iTypeImm );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "addi",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        registerName( rs1 ),
+                        stdformat( "{}", iTypeImm )
+                     }
+                  );
+               }
                break;
             }
 
@@ -189,14 +349,32 @@ void RISCV::step()
                   case 0:
                   {
                      uint32_t shamt = ( instr >> 20 ) & 0x1f;
-                     setRegister( rd, getRegister( rs1 ) << shamt );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) << shamt );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "slli",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              stdformat( "{}", shamt )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -205,34 +383,79 @@ void RISCV::step()
 
             case 2: // SLTI
             {
-               if( (int32_t)getRegister( rs1 ) < iTypeImm )
+               if( pCPU )
                {
-                  setRegister( rd, 1 );
-               } else
-               {
-                  setRegister( rd, 0 );
+                  if( (int32_t)pCPU->getRegister( rs1 ) < iTypeImm )
+                  {
+                     pCPU->setRegister( rd, 1 );
+                  } else
+                  {
+                     pCPU->setRegister( rd, 0 );
+                  }
+                  newPC = oldPC + 4;
                }
-               m_PC += 4;
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "slti",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        registerName( rs1 ),
+                        stdformat( "{}", iTypeImm )
+                     }
+                  );
+               }
                break;
             }
 
             case 3: // SLTIU
             {
-               if( getRegister( rs1 ) < (uint32_t)iTypeImm )
+               if( pCPU )
                {
-                  setRegister( rd, 1 );
-               } else
-               {
-                  setRegister( rd, 0 );
+                  if( pCPU->getRegister( rs1 ) < (uint32_t)iTypeImm )
+                  {
+                     pCPU->setRegister( rd, 1 );
+                  } else
+                  {
+                     pCPU->setRegister( rd, 0 );
+                  }
+                  newPC = oldPC + 4;
                }
-               m_PC += 4;
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "sltiu",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        registerName( rs1 ),
+                        stdformat( "{}", (uint32_t)iTypeImm )
+                     }
+                  );
+               }
                break;
             }
 
             case 4: // XORI
             {
-               setRegister( rd, getRegister( rs1 ) ^ (uint32_t)iTypeImm );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) ^ (uint32_t)iTypeImm );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "xori",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        registerName( rs1 ),
+                        stdformat( "{}", (uint32_t)iTypeImm )
+                     }
+                  );
+               }
                break;
             }
 
@@ -243,22 +466,55 @@ void RISCV::step()
                   case 0: // SRLI
                   {
                      uint32_t shamt = ( instr >> 20 ) & 0x1f;
-                     setRegister( rd, getRegister( rs1 ) >> shamt );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) >> shamt );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "srli",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              stdformat( "{}", shamt )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 0x20: // SRAI
                   {
                      uint32_t shamt = ( instr >> 20 ) & 0x1f;
-                     setRegister( rd, (int32_t)getRegister( rs1 ) >> shamt );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) >> shamt );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "srai",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName ( rs1 ),
+                              stdformat( "{}", shamt )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -267,21 +523,54 @@ void RISCV::step()
 
             case 6: // ORI
             {
-               setRegister( rd, getRegister( rs1 ) | (uint32_t)iTypeImm );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) | (uint32_t)iTypeImm );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "ori",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        registerName( rs1 ),
+                        stdformat( "{}", (uint32_t)iTypeImm )
+                     }
+                  );
+               }
                break;
             }
 
             case 7: // ANDI
             {
-               setRegister( rd, getRegister( rs1 ) & (uint32_t)iTypeImm );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) & (uint32_t)iTypeImm );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "andi",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        registerName( rs1 ),
+                        stdformat( "{}", (uint32_t)iTypeImm )
+                     }
+                  );
+               }
                break;
             }
 
             default:
             {
-               unknownOpcode();
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
                break;
             }
          }
@@ -290,9 +579,22 @@ void RISCV::step()
 
       case 0x17: // AUIPC
       {
-         setRegister( rd, m_PC + uTypeImm );
-         fprintf( stderr, "[0x%08x] - 0x%08x: auipc\t%s,0x%08x (->%08x)\n", m_PC, instr, registerName( rd ).c_str(), ( instr & 0xfffff000 ) >> 12, (uint32_t)( m_PC + uTypeImm ) );
-         m_PC += 4;
+         if( pCPU )
+         {
+            pCPU->setRegister( rd, oldPC + uTypeImm );
+            newPC = oldPC + 4;
+         }
+
+         if( pInstruction )
+         {
+            pInstruction->set( oldPC, instr, "auipc",
+               util::strvec
+               {
+                  registerName( rd ),
+                  stdformat( "0x{:x}", uTypeImm >> 12 )
+               }
+            );
+         }
          break;
       }
 
@@ -302,44 +604,404 @@ void RISCV::step()
          {
             case 0: // SB
             {
-               m_pMemory->writeMem8( getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) & 0xff );
-               fprintf( stderr, "%08x sb\t%s,%d(%s) # writeMem( 0x%08x, 0x%02x )\n",
-                  m_PC,
-                  registerName( rs2 ).c_str(),
-                  sTypeImm,
-                  registerName( rs1 ).c_str(),
-                  getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) & 0xff );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->writeMem8( pCPU->getRegister( rs1 ) + sTypeImm, pCPU->getRegister( rs2 ) & 0xff );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "sb",
+                     util::strvec
+                     {
+                        registerName( rs2 ),
+                        stdformat( "{}({})", sTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             case 1: // SH
             {
-               m_pMemory->writeMem16( getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) & 0xffff );
-               m_PC += 4;
+               if( pCPU )
+               {
+                  pCPU->writeMem16( pCPU->getRegister( rs1 ) + sTypeImm, pCPU->getRegister( rs2 ) & 0xffff );
+                  newPC = oldPC + 4;
+               }
+
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "sh",
+                     util::strvec
+                     {
+                        registerName( rs2 ),
+                        stdformat( "{}({})", sTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             case 2: // SW
             {
-               fprintf( stderr, "%08x sw\t%s,%d(%s) # writeMem( 0x%08x, 0x%08x )\n",
-                  m_PC,
-                  registerName( rs2 ).c_str(),
-                  sTypeImm,
-                  registerName( rs1 ).c_str(),
-                  getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) );
+               if( pCPU )
+               {
+                  pCPU->writeMem32( pCPU->getRegister( rs1 ) + sTypeImm, pCPU->getRegister( rs2 ) );
+                  newPC = oldPC + 4;
+               }
 
-               m_pMemory->writeMem32( getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) );
-               m_PC += 4;
+               if( pInstruction )
+               {
+                  pInstruction->set( oldPC, instr, "sw",
+                     util::strvec
+                     {
+                        registerName( rs2 ),
+                        stdformat( "{}({})", sTypeImm, registerName( rs1 ) )
+                     }
+                  );
+               }
                break;
             }
 
             default:
             {
-               unknownOpcode();
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
                break;
             }
          }
+         break;
+      }
+
+      case 0x2f:
+      {
+         switch( funct3 )
+         {
+            case 2:
+            {
+               switch( funct7 & ~3 ) // Ignore the aq and rl flags as we're emulating only a single hart
+               {
+                  case 0: // amoadd.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        v = v + pCPU->getRegister( rs2 );
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amoadd.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 4: // amoswap.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        v = pCPU->getRegister( rs2 );
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amoswap.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 8: // lr.w (load&reserve word)
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t addr = pCPU->getRegister( rs1 );
+                        pCPU->reserveAddr( addr, 4 );
+                        pCPU->setRegister( rd, pCPU->readMem32( pCPU->getRegister( rs1 ) ) );
+
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "lr.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 12: // sc.w (store conditional)
+                  {
+                     if( pCPU )
+                     {
+                        if( pCPU->numReservedAddresses( pCPU->getRegister( rs1 ), 4 ) == 4 )
+                        {
+                           // All accessed addresses have been reserved -> success
+                           pCPU->writeMem32( pCPU->getRegister( rs1 ), pCPU->getRegister( rs2 ) );
+                           pCPU->setRegister( rd, 0 );
+                        } else
+                        {
+                           pCPU->setRegister( rd, 1 );
+                        }
+
+                        pCPU->clearAllReservations();
+
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "sc.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 16: // amoxor.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        v = v ^ pCPU->getRegister( rs2 );
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amoxor.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 32: // amoor.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        v = v | pCPU->getRegister( rs2 );
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amoor.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 48: // amoand.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        v = v & pCPU->getRegister( rs2 );
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amoand.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 64: // amomin.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        uint32_t vrs2 = pCPU->getRegister( rs2 );
+                        v = (int32_t)v < (int32_t)vrs2 ? v : vrs2;
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amomin.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 80: // amomax.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        uint32_t vrs2 = pCPU->getRegister( rs2 );
+                        v = (int32_t)v > (int32_t)vrs2 ? v : vrs2;
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amomax.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 96: // amominu.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        uint32_t vrs2 = pCPU->getRegister( rs2 );
+                        v = v < vrs2 ? v : vrs2;
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amominu.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  case 112: // amomaxu.w
+                  {
+                     if( pCPU )
+                     {
+                        uint32_t address = pCPU->getRegister( rs1 );
+                        uint32_t v = pCPU->readMem32( address );
+                        pCPU->setRegister( rd, v );
+                        uint32_t vrs2 = pCPU->getRegister( rs2 );
+                        v = v > vrs2 ? v : vrs2;
+                        pCPU->writeMem32( address, v );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "amomaxu.w",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs2 ),
+                              stdformat( "({})", registerName( rs1 ) )
+                           }
+                        );
+                     }
+                     break;
+                  }
+
+                  default:
+                  {
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
+                     break;
+                  }
+               }
+               break;
+            }
+
+            default:
+            {
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
+               break;
+            }
+         }
+
          break;
       }
 
@@ -353,28 +1015,76 @@ void RISCV::step()
                {
                   case 0x00: // ADD
                   {
-                     setRegister( rd, (int32_t)getRegister( rs1 ) + (int32_t)getRegister( rs2 ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) + (int32_t)pCPU->getRegister( rs2 ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "add",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 0x01: // MUL
                   {
-                     setRegister( rd, (uint32_t)( ( (int64_t)getRegister( rs1 ) * (int64_t)getRegister( rs2 ) ) & 0xffffffff ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (uint32_t)( ( (int64_t)pCPU->getRegister( rs1 ) * (int64_t)pCPU->getRegister( rs2 ) ) & 0xffffffff ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "mul",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 0x20: // SUB
                   {
-                     setRegister( rd, (int32_t)getRegister( rs1 ) - (int32_t)getRegister( rs2 ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) - (int32_t)pCPU->getRegister( rs2 ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "sub",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -387,21 +1097,54 @@ void RISCV::step()
                {
                   case 0: // SLL
                   {
-                     setRegister( rd, getRegister( rs1 ) << ( getRegister( rs2 ) & 0x1f ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) << ( pCPU->getRegister( rs2 ) & 0x1f ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "sll",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // MULH
                   {
-                     setRegister( rd, ( ( (int64_t)getRegister( rs1 ) * (int64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, ( ( (int64_t)pCPU->getRegister( rs1 ) * (int64_t)pCPU->getRegister( rs2 ) ) >> 32 ) & 0xffffffff );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "mulh",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -414,27 +1157,60 @@ void RISCV::step()
                {
                   case 0: // SLT
                   {
-                     if( (int32_t)getRegister( rs1 ) < (int32_t)getRegister( rs2 ) )
+                     if( pCPU )
                      {
-                        setRegister( rd, 1 );
-                     } else
-                     {
-                        setRegister( rd, 0 );
+                        if( (int32_t)pCPU->getRegister( rs1 ) < (int32_t)pCPU->getRegister( rs2 ) )
+                        {
+                           pCPU->setRegister( rd, 1 );
+                        } else
+                        {
+                           pCPU->setRegister( rd, 0 );
+                        }
+                        newPC = oldPC + 4;
                      }
-                     m_PC += 4;
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "slt",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // MULHSU
                   {
-                     setRegister( rd, (uint32_t)( ( ( (int64_t)getRegister( rs1 ) * (uint64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (uint32_t)( ( ( (int64_t)pCPU->getRegister( rs1 ) * (uint64_t)pCPU->getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "mulhsu",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -447,27 +1223,60 @@ void RISCV::step()
                {
                   case 0: // SLTU
                   {
-                     if( getRegister( rs1 ) < getRegister( rs2 ) )
+                     if( pCPU )
                      {
-                        setRegister( rd, 1 );
-                     } else
-                     {
-                        setRegister( rd, 0 );
+                        if( pCPU->getRegister( rs1 ) < pCPU->getRegister( rs2 ) )
+                        {
+                           pCPU->setRegister( rd, 1 );
+                        } else
+                        {
+                           pCPU->setRegister( rd, 0 );
+                        }
+                        newPC = oldPC + 4;
                      }
-                     m_PC += 4;
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "sltu",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // MULHU
                   {
-                     setRegister( rd, (uint32_t)( ( ( (uint64_t)getRegister( rs1 ) * (uint64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (uint32_t)( ( ( (uint64_t)pCPU->getRegister( rs1 ) * (uint64_t)pCPU->getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "mulhu",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -480,31 +1289,64 @@ void RISCV::step()
                {
                   case 0: // XOR
                   {
-                     setRegister( rd, getRegister( rs1 ) ^ getRegister( rs2 ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) ^ pCPU->getRegister( rs2 ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "xor",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // DIV
                   {
-                     if( getRegister( rs2 ) == 0 )
+                     if( pCPU )
                      {
-                        setRegister( rd, 0xffffffff );
-                     } else
-                     if( ( getRegister( rs1 ) == 0x80000000 ) && ( getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
-                     {
-                        setRegister( rd, 0x80000000 );
-                     } else
-                     {
-                        setRegister( rd, (uint32_t)( (int32_t)getRegister( rs1 ) / (int32_t)getRegister( rs2 ) ) );
+                        if( pCPU->getRegister( rs2 ) == 0 )
+                        {
+                           pCPU->setRegister( rd, 0xffffffff );
+                        } else
+                        if( ( pCPU->getRegister( rs1 ) == 0x80000000 ) && ( pCPU->getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
+                        {
+                           pCPU->setRegister( rd, 0x80000000 );
+                        } else
+                        {
+                           pCPU->setRegister( rd, (uint32_t)( (int32_t)pCPU->getRegister( rs1 ) / (int32_t)pCPU->getRegister( rs2 ) ) );
+                        }
+                        newPC = oldPC + 4;
                      }
-                     m_PC += 4;
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "div",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -517,34 +1359,82 @@ void RISCV::step()
                {
                   case 0: // SRL
                   {
-                     setRegister( rd, getRegister( rs1 ) >> ( getRegister( rs2 ) & 0x1f ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) >> ( pCPU->getRegister( rs2 ) & 0x1f ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "srl",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // DIVU
                   {
-                     if( getRegister( rs2 ) == 0 )
+                     if( pCPU )
                      {
-                        setRegister( rd, 0xffffffff );
-                     } else
-                     {
-                        setRegister( rd, getRegister( rs1 ) / getRegister( rs2 ) );
+                        if( pCPU->getRegister( rs2 ) == 0 )
+                        {
+                           pCPU->setRegister( rd, 0xffffffff );
+                        } else
+                        {
+                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) / pCPU->getRegister( rs2 ) );
+                        }
+                        newPC = oldPC + 4;
                      }
-                     m_PC += 4;
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "divu",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 0x20: // SRA
                   {
-                     setRegister( rd, (int32_t)getRegister( rs1 ) >> ( getRegister( rs2 ) & 0x1f ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) >> ( pCPU->getRegister( rs2 ) & 0x1f ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "sra",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -557,31 +1447,64 @@ void RISCV::step()
                {
                   case 0: // OR
                   {
-                     setRegister( rd, getRegister( rs1 ) | getRegister( rs2 ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) | pCPU->getRegister( rs2 ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "or",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // REM
                   {
-                     if( getRegister( rs2 ) == 0 )
+                     if( pCPU )
                      {
-                        setRegister( rd, getRegister( rs1 ) );
-                     } else
-                     if( ( getRegister( rs1 ) == 0x80000000 ) && ( getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
-                     {
-                        setRegister( rd, 0 );
-                     } else
-                     {
-                        setRegister( rd, (uint32_t)( (int32_t)getRegister( rs1 ) % (int32_t)getRegister( rs2 ) ) );
+                        if( pCPU->getRegister( rs2 ) == 0 )
+                        {
+                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) );
+                        } else
+                        if( ( pCPU->getRegister( rs1 ) == 0x80000000 ) && ( pCPU->getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
+                        {
+                           pCPU->setRegister( rd, 0 );
+                        } else
+                        {
+                           pCPU->setRegister( rd, (uint32_t)( (int32_t)pCPU->getRegister( rs1 ) % (int32_t)pCPU->getRegister( rs2 ) ) );
+                        }
+                        newPC = oldPC + 4;
                      }
-                     m_PC += 4;
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "rem",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -594,27 +1517,60 @@ void RISCV::step()
                {
                   case 0: // AND
                   {
-                     setRegister( rd, getRegister( rs1 ) & getRegister( rs2 ) );
-                     m_PC += 4;
+                     if( pCPU )
+                     {
+                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) & pCPU->getRegister( rs2 ) );
+                        newPC = oldPC + 4;
+                     }
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "and",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   case 1: // REMU
                   {
-                     if( getRegister( rs2 ) == 0 )
+                     if( pCPU )
                      {
-                        setRegister( rd, getRegister( rs1 ) );
-                     } else
-                     {
-                        setRegister( rd, getRegister( rs1 ) % getRegister( rs2 ) );
+                        if( pCPU->getRegister( rs2 ) == 0 )
+                        {
+                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) );
+                        } else
+                        {
+                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) % pCPU->getRegister( rs2 ) );
+                        }
+                        newPC = oldPC + 4;
                      }
-                     m_PC += 4;
+
+                     if( pInstruction )
+                     {
+                        pInstruction->set( oldPC, instr, "remu",
+                           util::strvec
+                           {
+                              registerName( rd ),
+                              registerName( rs1 ),
+                              registerName( rs2 )
+                           }
+                        );
+                     }
                      break;
                   }
 
                   default:
                   {
-                     unknownOpcode();
+                     if( pCPU )
+                     {
+                        pCPU->unknownOpcode();
+                     }
                      break;
                   }
                }
@@ -623,7 +1579,10 @@ void RISCV::step()
 
             default:
             {
-               unknownOpcode();
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
                break;
             }
          }
@@ -632,8 +1591,22 @@ void RISCV::step()
 
       case 0x37: // LUI
       {
-         setRegister( rd, uTypeImm );
-         m_PC += 4;
+         if( pCPU )
+         {
+            pCPU->setRegister( rd, uTypeImm );
+            newPC = oldPC + 4;
+         }
+
+         if( pInstruction )
+         {
+            pInstruction->set( oldPC, instr, "lui",
+               util::strvec
+               {
+                  registerName( rd ),
+                  stdformat( "0x{:x}", uTypeImm >> 12 )
+               }
+            );
+         }
          break;
       }
 
@@ -643,79 +1616,178 @@ void RISCV::step()
          {
             case 0: // BEQ
             {
-               if( getRegister( rs1 ) == getRegister( rs2 ) )
+               if( pCPU )
                {
-                  m_PC += bTypeImm;
-               } else
+                  if( pCPU->getRegister( rs1 ) == pCPU->getRegister( rs2 ) )
+                  {
+                     newPC = oldPC + bTypeImm;
+                  } else
+                  {
+                     newPC = oldPC + 4;
+                  }
+               }
+
+               if( pInstruction )
                {
-                  m_PC += 4;
+                  pInstruction->set( oldPC, instr, "beq",
+                     util::strvec
+                     {
+                        registerName( rs1 ),
+                        registerName( rs2 ),
+                        stdformat( "{}", bTypeImm )
+                     },
+                     stdformat( "{:x}", oldPC + bTypeImm )
+                  );
                }
                break;
             }
 
             case 1: // BNE
             {
-               if( getRegister( rs1 ) != getRegister( rs2 ) )
+               if( pCPU )
                {
-                  m_PC += bTypeImm;
-               } else
+                  if( pCPU->getRegister( rs1 ) != pCPU->getRegister( rs2 ) )
+                  {
+                     newPC = oldPC + bTypeImm;
+                  } else
+                  {
+                     newPC = oldPC + 4;
+                  }
+               }
+
+               if( pInstruction )
                {
-                  m_PC += 4;
+                  pInstruction->set( oldPC, instr, "bne",
+                     util::strvec
+                     {
+                        registerName( rs1 ),
+                        registerName( rs2 ),
+                        stdformat( "{}", bTypeImm )
+                     },
+                     stdformat( "{:x}", oldPC + bTypeImm )
+                  );
                }
                break;
             }
 
             case 4: // BLT
             {
-               if( (int32_t)getRegister( rs1 ) < (int32_t)getRegister( rs2 ) )
+               if( pCPU )
                {
-                  m_PC += bTypeImm;
-               } else
+                  if( (int32_t)pCPU->getRegister( rs1 ) < (int32_t)pCPU->getRegister( rs2 ) )
+                  {
+                     newPC = oldPC + bTypeImm;
+                  } else
+                  {
+                     newPC = oldPC + 4;
+                  }
+               }
+
+               if( pInstruction )
                {
-                  m_PC += 4;
+                  pInstruction->set( oldPC, instr, "blt",
+                     util::strvec
+                     {
+                        registerName( rs1 ),
+                        registerName( rs2 ),
+                        stdformat( "{}", bTypeImm )
+                     },
+                     stdformat( "{:x}", oldPC + bTypeImm )
+                  );
                }
                break;
             }
 
             case 5: // BGE
             {
-               if( (int32_t)getRegister( rs1 ) >= (int32_t)getRegister( rs2 ) )
+               if( pCPU )
                {
-                  m_PC += bTypeImm;
-               } else
+                  if( (int32_t)pCPU->getRegister( rs1 ) >= (int32_t)pCPU->getRegister( rs2 ) )
+                  {
+                     newPC = oldPC + bTypeImm;
+                  } else
+                  {
+                     newPC = oldPC + 4;
+                  }
+               }
+
+               if( pInstruction )
                {
-                  m_PC += 4;
+                  pInstruction->set( oldPC, instr, "bge",
+                     util::strvec
+                     {
+                        registerName( rs1 ),
+                        registerName( rs2 ),
+                        stdformat( "{}", bTypeImm )
+                     },
+                     stdformat( "{:x}", oldPC + bTypeImm )
+                  );
                }
                break;
             }
 
             case 6: // BLTU
             {
-               if( getRegister( rs1 ) < getRegister( rs2 ) )
+               if( pCPU )
                {
-                  m_PC += bTypeImm;
-               } else
+                  if( pCPU->getRegister( rs1 ) < pCPU->getRegister( rs2 ) )
+                  {
+                     newPC = oldPC + bTypeImm;
+                  } else
+                  {
+                     newPC = oldPC + 4;
+                  }
+               }
+
+               if( pInstruction )
                {
-                  m_PC += 4;
+                  pInstruction->set( oldPC, instr, "bltu",
+                     util::strvec
+                     {
+                        registerName( rs1 ),
+                        registerName( rs2 ),
+                        stdformat( "{}", bTypeImm )
+                     },
+                     stdformat( "{:x}", oldPC + bTypeImm )
+                  );
                }
                break;
             }
 
             case 7: // BGEU
             {
-               if( getRegister( rs1 ) >= getRegister( rs2 ) )
+               if( pCPU )
                {
-                  m_PC += bTypeImm;
-               } else
+                  if( pCPU->getRegister( rs1 ) >= pCPU->getRegister( rs2 ) )
+                  {
+                     newPC = oldPC + bTypeImm;
+                  } else
+                  {
+                     newPC = oldPC + 4;
+                  }
+               }
+
+               if( pInstruction )
                {
-                  m_PC += 4;
+                  pInstruction->set( oldPC, instr, "bgeu",
+                     util::strvec
+                     {
+                        registerName( rs1 ),
+                        registerName( rs2 ),
+                        stdformat( "{}", bTypeImm )
+                     },
+                     stdformat( "{:x}", oldPC + bTypeImm )
+                  );
                }
                break;
             }
 
             default:
             {
-               unknownOpcode();
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
                break;
             }
          }
@@ -728,30 +1800,188 @@ void RISCV::step()
          {
             case 0: // JALR
             {
-               setRegister( rd, m_PC + 4 );
-               m_PC = ( (int32_t)getRegister( rs1 ) + iTypeImm ) & 0xfffffffe;
+               if( pCPU )
+               {
+                  pCPU->setRegister( rd, oldPC + 4 );
+                  newPC = ( (int32_t)pCPU->getRegister( rs1 ) + iTypeImm ) & 0xfffffffe;
+               }
+
+               if( pInstruction )
+               {
+                  std::string comment;
+                  if( ( rd == 0 ) && ( iTypeImm == 0 ) && ( rs1 == 1 ) )
+                  {
+                     comment = "ret";
+                  }
+
+                  pInstruction->set( oldPC, instr, "jalr",
+                     util::strvec
+                     {
+                        registerName( rd ),
+                        stdformat( "{}({})", iTypeImm, registerName( rs1 ) )
+                     },
+                     comment
+                  );
+               }
                break;
             }
 
             default:
             {
-               unknownOpcode();
+               if( pCPU )
+               {
+                  pCPU->unknownOpcode();
+               }
                break;
             }
          }
+         break;
       }
 
       case 0x6f: // JAL
       {
-         setRegister( rd, m_PC + 4 );
-         m_PC += jTypeImm;
+         if( pCPU )
+         {
+            pCPU->setRegister( rd, oldPC + 4 );
+            newPC = oldPC + jTypeImm;
+         }
+
+         if( pInstruction )
+         {
+            pInstruction->set( oldPC, instr, "jal",
+               util::strvec
+               {
+                  registerName( rd ),
+                  stdformat( "{}", jTypeImm )
+               },
+               stdformat( "{:8x}", oldPC + jTypeImm )
+            );
+         }
          break;
       }
 
       default:
       {
-         unknownOpcode();
+         if( pCPU )
+         {
+            pCPU->unknownOpcode();
+         }
          break;
       }
    }
+
+   if( pCPU )
+   {
+      pCPU->m_PC = newPC;
+   }
+
+   if( pInstruction )
+   {
+      std::string disass = pInstruction->toString();
+      if( disass.size() > 1 )
+      {
+         printf( "%08x\t%s\n", pInstruction->getAddress(), disass.c_str() );
+      } else
+      {
+         printf( "%08x\n", pInstruction->getAddress() );
+      }
+   }
+}
+
+
+void RISCV::step()
+{
+   uint32_t instr = readMem32( m_PC );
+   Instruction disassembly;
+   step( m_PC, instr, this, &disassembly );
+}
+
+
+void RISCV::invalidateReservation( uint32_t addr, int n )
+{
+   if( n < 1 )
+      return;
+
+   for( int i = 0; i < n; i++ )
+   {
+      if( m_ReservedAddresses.find( addr ) != m_ReservedAddresses.end() )
+      {
+         m_ReservedAddresses.erase( addr );
+      }
+      addr++;
+   }
+}
+
+
+void RISCV::reserveAddr( uint32_t addr, int n )
+{
+   if( n < 1 )
+      return;
+
+   clearAllReservations();
+   for( int i = 0; i < n; i++ )
+   {
+      m_ReservedAddresses[addr++] = true;
+   }
+}
+
+
+void RISCV::clearAllReservations()
+{
+   m_ReservedAddresses.clear();
+}
+
+
+int RISCV::numReservedAddresses( uint32_t addr, int n ) const
+{
+   if( n < 1 )
+      return( 0 );
+
+   int numReserved = 0;
+   for( int i = 0; i < n; i++ )
+   {
+      if( m_ReservedAddresses.find( addr ) != m_ReservedAddresses.end() )
+         numReserved++;
+   }
+
+   return( numReserved );
+}
+
+
+uint8_t RISCV::readMem8( uint32_t address )
+{
+   return( m_pMemory->readMem8( address ) );
+}
+
+
+uint16_t RISCV::readMem16( uint32_t address )
+{
+   return( m_pMemory->readMem16( address ) );
+}
+
+
+uint32_t RISCV::readMem32( uint32_t address )
+{
+   return( m_pMemory->readMem32( address ) );
+}
+
+
+void RISCV::writeMem8( uint32_t address, uint8_t d )
+{
+   invalidateReservation( address );
+   m_pMemory->writeMem8( address, d );
+}
+
+
+void RISCV::writeMem16( uint32_t address, uint16_t d )
+{
+   invalidateReservation( address, 2 );
+   m_pMemory->writeMem16( address, d );
+}
+
+
+void RISCV::writeMem32( uint32_t address, uint32_t d )
+{
+   invalidateReservation( address, 4 );
+   m_pMemory->writeMem32( address, d );
 }

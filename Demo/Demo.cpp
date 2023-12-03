@@ -4,7 +4,8 @@ int main( int argc, const char *argv[] )
 
 	for( int i = 0; i < 32; i++ )
 	{
-		*pDest = (unsigned char)( i );
+		*pDest = (unsigned char)( i << 3 );
+		*(unsigned long int *)pDest = 0x12345678;
 		pDest++;
 	}
 	

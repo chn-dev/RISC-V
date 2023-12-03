@@ -82,7 +82,6 @@ uint32_t Emulator::readMem32( uint32_t address )
 
 void Emulator::writeMem8( uint32_t address, uint8_t d )
 {
-   printf( "writeMem( 0x%08x, 0x%02x )\n", address, d );
    if( address >= m_RAMStart && address < m_RAMStart + m_RAMSize )
    {
       uint32_t a = address - m_RAMStart;
