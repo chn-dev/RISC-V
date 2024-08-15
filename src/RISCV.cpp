@@ -1,82 +1,21 @@
+/*----------------------------------------------------------------------------*/
+/*!
+\file RISCV.cpp
+\author Christian Nowak <chnowak@web.de>
+\brief This implements the RISCV core emulation
+*/
+/*----------------------------------------------------------------------------*/
 #include <stdio.h>
 #include <string>
 
 #include "RISCV.h"
 
-RISCV::Instruction::Instruction( uint32_t address, uint32_t code, std::string instruction, std::vector<std::string> parameters, std::string comment )
-{
-   set( address, code, instruction, parameters, comment );
-}
 
-
-RISCV::Instruction::Instruction()
-{
-}
-
-
-RISCV::Instruction::~Instruction()
-{
-}
-
-
-std::string RISCV::Instruction::toString() const
-{
-   std::string r = stdformat( "{}\t{}", m_Instruction, util::join( m_Parameters, "," ) );
-   if( m_Comment.size() > 0 )
-   {
-      r = r + " # " + m_Comment;
-   }
-
-   return( r );
-}
-
-
-void RISCV::Instruction::set( uint32_t address, uint32_t code, std::string instruction, std::vector<std::string> parameters, std::string comment )
-{
-   m_Address = address;
-   m_Code = code;
-   m_Instruction = instruction;
-   m_Parameters = parameters;
-   m_Comment = comment;
-}
-
-
-void RISCV::Instruction::set( const Instruction &o )
-{
-   set( o.getAddress(), o.getCode(), o.getInstruction(), o.getParameters(), o.getComment() );
-}
-
-
-uint32_t RISCV::Instruction::getAddress() const
-{
-   return( m_Address );
-}
-
-
-uint32_t RISCV::Instruction::getCode() const
-{
-   return( m_Code );
-}
-
-
-std::string RISCV::Instruction::getInstruction() const
-{
-   return( m_Instruction );
-}
-
-
-std::vector<std::string> RISCV::Instruction::getParameters() const
-{
-   return( m_Parameters );
-}
-
-
-std::string RISCV::Instruction::getComment() const
-{
-   return( m_Comment );
-}
-
-
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+Constructor for class RISCV
+*/
+/*----------------------------------------------------------------------------*/
 RISCV::RISCV( MemoryInterface *pMem ) :
    m_pMemory( pMem )
 {
@@ -84,11 +23,23 @@ RISCV::RISCV( MemoryInterface *pMem ) :
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+Destructor for class RISCV
+*/
+/*----------------------------------------------------------------------------*/
 RISCV::~RISCV()
 {
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+Convert a register number to its name.
+\param n The register number
+\return The register's name
+*/
+/*----------------------------------------------------------------------------*/
 std::string RISCV::registerName( int n )
 {
    static std::string registerNames[32] =
@@ -103,6 +54,11 @@ std::string RISCV::registerName( int n )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+Set the PC to 0x80000000 and all registers to 0.
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::reset()
 {
    m_PC = 0x80000000;
@@ -113,7 +69,13 @@ void RISCV::reset()
 }
 
 
-uint32_t RISCV::getRegister( int r )
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+\param r A register number
+\return The current contents of the register
+*/
+/*----------------------------------------------------------------------------*/
+uint32_t RISCV::getRegister( int r ) const
 {
    r &= 0x1f;
 
@@ -127,6 +89,24 @@ uint32_t RISCV::getRegister( int r )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+\return The current value of the PC (program counter)
+*/
+/*----------------------------------------------------------------------------*/
+uint32_t RISCV::getPC() const
+{
+   return( m_PC );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+Set a register to a given value.
+\param r The register number
+\param v The value to set the register to
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::setRegister( int r, uint32_t v )
 {
    r &= 0x1f;
@@ -138,16 +118,29 @@ void RISCV::setRegister( int r, uint32_t v )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+This method is called when the emulation encounters an unknown opcode.
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::unknownOpcode()
 {
-   printf("\n");
-   while(1);
-   exit( 1 );
+   m_pMemory->unknownOpcode();
 }
 
 
-uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *pInstruction )
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-14
+Execute a single machine code instruction.
+\param pInstruction Pointer to an Instruction object for a disassembly.
+Pass nullptr if no disassembly is required.
+*/
+/*----------------------------------------------------------------------------*/
+void RISCV::step( Instruction *pInstruction )
 {
+   uint32_t instr = readMem32( m_PC );
+   uint32_t oldPC = getPC();
+
    uint8_t opcode = instr & 0x7f;
 
    uint8_t rd = ( instr >> 7 ) & 0x1f;
@@ -178,13 +171,6 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
    if( instr & 0x80000000 )
       bTypeImm |= 0b11111111111 << 21;
 
-   bool oldPCValid = false;
-   if( pCPU )
-   {
-      oldPC = pCPU->m_PC;
-      oldPCValid = true;
-   }
-
    uint32_t newPC = oldPC;
 
    switch( opcode )
@@ -195,14 +181,11 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
          {
             case 0: // LB
             {
-               if( pCPU )
-               {
-                  uint32_t d = pCPU->readMem8( pCPU->getRegister( rs1 ) + iTypeImm );
-                  if( d & 0x80 )
-                     d |= 0xffffff00;
-                  pCPU->setRegister( rd, d );
-                  newPC = oldPC + 4;
-               }
+               uint32_t d = readMem8( getRegister( rs1 ) + iTypeImm );
+               if( d & 0x80 )
+                  d |= 0xffffff00;
+               setRegister( rd, d );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -219,14 +202,11 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 1: // LH
             {
-               if( pCPU )
-               {
-                  uint32_t d = pCPU->readMem16( pCPU->getRegister( rs1 ) + iTypeImm );
-                  if( d & 0x8000 )
-                     d |= 0xffff0000;
-                  pCPU->setRegister( rd, d );
-                  newPC = oldPC + 4;
-               }
+               uint32_t d = readMem16( getRegister( rs1 ) + iTypeImm );
+               if( d & 0x8000 )
+                  d |= 0xffff0000;
+               setRegister( rd, d );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -243,11 +223,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 2: // LW
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->readMem32( pCPU->getRegister( rs1 ) + iTypeImm ) );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, readMem32( getRegister( rs1 ) + iTypeImm ) );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -264,11 +241,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 4: // LBU
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->readMem8( pCPU->getRegister( rs1 ) + iTypeImm ) );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, readMem8( getRegister( rs1 ) + iTypeImm ) );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -285,15 +259,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 5: // LHU
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->readMem16( pCPU->getRegister( rs1 ) + iTypeImm ) );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, readMem16( getRegister( rs1 ) + iTypeImm ) );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
-                  pInstruction->set( oldPC, instr, "lbu",
+                  pInstruction->set( oldPC, instr, "lhu",
                      util::strvec
                      {
                         registerName( rd ),
@@ -306,10 +277,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -322,11 +290,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
          {
             case 0: // ADDI
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) + iTypeImm );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, getRegister( rs1 ) + iTypeImm );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -349,11 +314,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                   case 0:
                   {
                      uint32_t shamt = ( instr >> 20 ) & 0x1f;
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) << shamt );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) << shamt );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -371,10 +333,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -383,17 +342,14 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 2: // SLTI
             {
-               if( pCPU )
+               if( (int32_t)getRegister( rs1 ) < iTypeImm )
                {
-                  if( (int32_t)pCPU->getRegister( rs1 ) < iTypeImm )
-                  {
-                     pCPU->setRegister( rd, 1 );
-                  } else
-                  {
-                     pCPU->setRegister( rd, 0 );
-                  }
-                  newPC = oldPC + 4;
+                  setRegister( rd, 1 );
+               } else
+               {
+                  setRegister( rd, 0 );
                }
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -411,17 +367,14 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 3: // SLTIU
             {
-               if( pCPU )
+               if( getRegister( rs1 ) < (uint32_t)iTypeImm )
                {
-                  if( pCPU->getRegister( rs1 ) < (uint32_t)iTypeImm )
-                  {
-                     pCPU->setRegister( rd, 1 );
-                  } else
-                  {
-                     pCPU->setRegister( rd, 0 );
-                  }
-                  newPC = oldPC + 4;
+                  setRegister( rd, 1 );
+               } else
+               {
+                  setRegister( rd, 0 );
                }
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -439,11 +392,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 4: // XORI
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) ^ (uint32_t)iTypeImm );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, getRegister( rs1 ) ^ (uint32_t)iTypeImm );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -466,11 +416,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                   case 0: // SRLI
                   {
                      uint32_t shamt = ( instr >> 20 ) & 0x1f;
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) >> shamt );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) >> shamt );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -489,11 +436,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                   case 0x20: // SRAI
                   {
                      uint32_t shamt = ( instr >> 20 ) & 0x1f;
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) >> shamt );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (int32_t)getRegister( rs1 ) >> shamt );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -511,10 +455,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -523,11 +464,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 6: // ORI
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) | (uint32_t)iTypeImm );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, getRegister( rs1 ) | (uint32_t)iTypeImm );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -545,11 +483,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 7: // ANDI
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, pCPU->getRegister( rs1 ) & (uint32_t)iTypeImm );
-                  newPC = oldPC + 4;
-               }
+               setRegister( rd, getRegister( rs1 ) & (uint32_t)iTypeImm );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -567,10 +502,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -579,11 +511,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
       case 0x17: // AUIPC
       {
-         if( pCPU )
-         {
-            pCPU->setRegister( rd, oldPC + uTypeImm );
-            newPC = oldPC + 4;
-         }
+         setRegister( rd, oldPC + uTypeImm );
+         newPC = oldPC + 4;
 
          if( pInstruction )
          {
@@ -604,11 +533,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
          {
             case 0: // SB
             {
-               if( pCPU )
-               {
-                  pCPU->writeMem8( pCPU->getRegister( rs1 ) + sTypeImm, pCPU->getRegister( rs2 ) & 0xff );
-                  newPC = oldPC + 4;
-               }
+               writeMem8( getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) & 0xff );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -625,11 +551,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 1: // SH
             {
-               if( pCPU )
-               {
-                  pCPU->writeMem16( pCPU->getRegister( rs1 ) + sTypeImm, pCPU->getRegister( rs2 ) & 0xffff );
-                  newPC = oldPC + 4;
-               }
+               writeMem16( getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) & 0xffff );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -646,11 +569,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 2: // SW
             {
-               if( pCPU )
-               {
-                  pCPU->writeMem32( pCPU->getRegister( rs1 ) + sTypeImm, pCPU->getRegister( rs2 ) );
-                  newPC = oldPC + 4;
-               }
+               writeMem32( getRegister( rs1 ) + sTypeImm, getRegister( rs2 ) );
+               newPC = oldPC + 4;
 
                if( pInstruction )
                {
@@ -667,10 +587,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -687,15 +604,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // amoadd.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        v = v + pCPU->getRegister( rs2 );
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     v = v + getRegister( rs2 );
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -713,15 +627,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 4: // amoswap.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        v = pCPU->getRegister( rs2 );
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     v = getRegister( rs2 );
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -739,14 +650,11 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 8: // lr.w (load&reserve word)
                   {
-                     if( pCPU )
-                     {
-                        uint32_t addr = pCPU->getRegister( rs1 );
-                        pCPU->reserveAddr( addr, 4 );
-                        pCPU->setRegister( rd, pCPU->readMem32( pCPU->getRegister( rs1 ) ) );
+                     uint32_t addr = getRegister( rs1 );
+                     reserveAddr( addr, 4 );
+                     setRegister( rd, readMem32( getRegister( rs1 ) ) );
 
-                        newPC = oldPC + 4;
-                     }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -763,22 +671,19 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 12: // sc.w (store conditional)
                   {
-                     if( pCPU )
+                     if( numReservedAddresses( getRegister( rs1 ), 4 ) == 4 )
                      {
-                        if( pCPU->numReservedAddresses( pCPU->getRegister( rs1 ), 4 ) == 4 )
-                        {
-                           // All accessed addresses have been reserved -> success
-                           pCPU->writeMem32( pCPU->getRegister( rs1 ), pCPU->getRegister( rs2 ) );
-                           pCPU->setRegister( rd, 0 );
-                        } else
-                        {
-                           pCPU->setRegister( rd, 1 );
-                        }
-
-                        pCPU->clearAllReservations();
-
-                        newPC = oldPC + 4;
+                        // All accessed addresses have been reserved -> success
+                        writeMem32( getRegister( rs1 ), getRegister( rs2 ) );
+                        setRegister( rd, 0 );
+                     } else
+                     {
+                        setRegister( rd, 1 );
                      }
+
+                     clearAllReservations();
+
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -796,15 +701,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 16: // amoxor.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        v = v ^ pCPU->getRegister( rs2 );
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     v = v ^ getRegister( rs2 );
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -822,15 +724,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 32: // amoor.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        v = v | pCPU->getRegister( rs2 );
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     v = v | getRegister( rs2 );
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -848,15 +747,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 48: // amoand.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        v = v & pCPU->getRegister( rs2 );
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     v = v & getRegister( rs2 );
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -874,16 +770,13 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 64: // amomin.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        uint32_t vrs2 = pCPU->getRegister( rs2 );
-                        v = (int32_t)v < (int32_t)vrs2 ? v : vrs2;
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     uint32_t vrs2 = getRegister( rs2 );
+                     v = (int32_t)v < (int32_t)vrs2 ? v : vrs2;
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -901,16 +794,13 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 80: // amomax.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        uint32_t vrs2 = pCPU->getRegister( rs2 );
-                        v = (int32_t)v > (int32_t)vrs2 ? v : vrs2;
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     uint32_t vrs2 = getRegister( rs2 );
+                     v = (int32_t)v > (int32_t)vrs2 ? v : vrs2;
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -928,16 +818,13 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 96: // amominu.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        uint32_t vrs2 = pCPU->getRegister( rs2 );
-                        v = v < vrs2 ? v : vrs2;
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     uint32_t vrs2 = getRegister( rs2 );
+                     v = v < vrs2 ? v : vrs2;
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -955,16 +842,13 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 112: // amomaxu.w
                   {
-                     if( pCPU )
-                     {
-                        uint32_t address = pCPU->getRegister( rs1 );
-                        uint32_t v = pCPU->readMem32( address );
-                        pCPU->setRegister( rd, v );
-                        uint32_t vrs2 = pCPU->getRegister( rs2 );
-                        v = v > vrs2 ? v : vrs2;
-                        pCPU->writeMem32( address, v );
-                        newPC = oldPC + 4;
-                     }
+                     uint32_t address = getRegister( rs1 );
+                     uint32_t v = readMem32( address );
+                     setRegister( rd, v );
+                     uint32_t vrs2 = getRegister( rs2 );
+                     v = v > vrs2 ? v : vrs2;
+                     writeMem32( address, v );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -982,10 +866,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -994,10 +875,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -1015,11 +893,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0x00: // ADD
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) + (int32_t)pCPU->getRegister( rs2 ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (int32_t)getRegister( rs1 ) + (int32_t)getRegister( rs2 ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1037,11 +912,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 0x01: // MUL
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (uint32_t)( ( (int64_t)pCPU->getRegister( rs1 ) * (int64_t)pCPU->getRegister( rs2 ) ) & 0xffffffff ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (uint32_t)( ( (int64_t)getRegister( rs1 ) * (int64_t)getRegister( rs2 ) ) & 0xffffffff ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1059,11 +931,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 0x20: // SUB
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) - (int32_t)pCPU->getRegister( rs2 ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (int32_t)getRegister( rs1 ) - (int32_t)getRegister( rs2 ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1081,10 +950,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1097,11 +963,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // SLL
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) << ( pCPU->getRegister( rs2 ) & 0x1f ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) << ( getRegister( rs2 ) & 0x1f ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1119,11 +982,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // MULH
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, ( ( (int64_t)pCPU->getRegister( rs1 ) * (int64_t)pCPU->getRegister( rs2 ) ) >> 32 ) & 0xffffffff );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, ( ( (int64_t)getRegister( rs1 ) * (int64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1141,10 +1001,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1157,17 +1014,14 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // SLT
                   {
-                     if( pCPU )
+                     if( (int32_t)getRegister( rs1 ) < (int32_t)getRegister( rs2 ) )
                      {
-                        if( (int32_t)pCPU->getRegister( rs1 ) < (int32_t)pCPU->getRegister( rs2 ) )
-                        {
-                           pCPU->setRegister( rd, 1 );
-                        } else
-                        {
-                           pCPU->setRegister( rd, 0 );
-                        }
-                        newPC = oldPC + 4;
+                        setRegister( rd, 1 );
+                     } else
+                     {
+                        setRegister( rd, 0 );
                      }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1185,11 +1039,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // MULHSU
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (uint32_t)( ( ( (int64_t)pCPU->getRegister( rs1 ) * (uint64_t)pCPU->getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (uint32_t)( ( ( (int64_t)getRegister( rs1 ) * (uint64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1207,10 +1058,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1223,17 +1071,14 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // SLTU
                   {
-                     if( pCPU )
+                     if( getRegister( rs1 ) < getRegister( rs2 ) )
                      {
-                        if( pCPU->getRegister( rs1 ) < pCPU->getRegister( rs2 ) )
-                        {
-                           pCPU->setRegister( rd, 1 );
-                        } else
-                        {
-                           pCPU->setRegister( rd, 0 );
-                        }
-                        newPC = oldPC + 4;
+                        setRegister( rd, 1 );
+                     } else
+                     {
+                        setRegister( rd, 0 );
                      }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1251,11 +1096,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // MULHU
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (uint32_t)( ( ( (uint64_t)pCPU->getRegister( rs1 ) * (uint64_t)pCPU->getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (uint32_t)( ( ( (uint64_t)getRegister( rs1 ) * (uint64_t)getRegister( rs2 ) ) >> 32 ) & 0xffffffff ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1273,10 +1115,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1289,11 +1128,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // XOR
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) ^ pCPU->getRegister( rs2 ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) ^ getRegister( rs2 ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1311,21 +1147,18 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // DIV
                   {
-                     if( pCPU )
+                     if( getRegister( rs2 ) == 0 )
                      {
-                        if( pCPU->getRegister( rs2 ) == 0 )
-                        {
-                           pCPU->setRegister( rd, 0xffffffff );
-                        } else
-                        if( ( pCPU->getRegister( rs1 ) == 0x80000000 ) && ( pCPU->getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
-                        {
-                           pCPU->setRegister( rd, 0x80000000 );
-                        } else
-                        {
-                           pCPU->setRegister( rd, (uint32_t)( (int32_t)pCPU->getRegister( rs1 ) / (int32_t)pCPU->getRegister( rs2 ) ) );
-                        }
-                        newPC = oldPC + 4;
+                        setRegister( rd, 0xffffffff );
+                     } else
+                     if( ( getRegister( rs1 ) == 0x80000000 ) && ( getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
+                     {
+                        setRegister( rd, 0x80000000 );
+                     } else
+                     {
+                        setRegister( rd, (uint32_t)( (int32_t)getRegister( rs1 ) / (int32_t)getRegister( rs2 ) ) );
                      }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1343,10 +1176,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1359,11 +1189,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // SRL
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) >> ( pCPU->getRegister( rs2 ) & 0x1f ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) >> ( getRegister( rs2 ) & 0x1f ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1381,17 +1208,14 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // DIVU
                   {
-                     if( pCPU )
+                     if( getRegister( rs2 ) == 0 )
                      {
-                        if( pCPU->getRegister( rs2 ) == 0 )
-                        {
-                           pCPU->setRegister( rd, 0xffffffff );
-                        } else
-                        {
-                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) / pCPU->getRegister( rs2 ) );
-                        }
-                        newPC = oldPC + 4;
+                        setRegister( rd, 0xffffffff );
+                     } else
+                     {
+                        setRegister( rd, getRegister( rs1 ) / getRegister( rs2 ) );
                      }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1409,11 +1233,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 0x20: // SRA
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, (int32_t)pCPU->getRegister( rs1 ) >> ( pCPU->getRegister( rs2 ) & 0x1f ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, (int32_t)getRegister( rs1 ) >> ( getRegister( rs2 ) & 0x1f ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1431,10 +1252,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1447,11 +1265,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // OR
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) | pCPU->getRegister( rs2 ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) | getRegister( rs2 ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1469,21 +1284,18 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // REM
                   {
-                     if( pCPU )
+                     if( getRegister( rs2 ) == 0 )
                      {
-                        if( pCPU->getRegister( rs2 ) == 0 )
-                        {
-                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) );
-                        } else
-                        if( ( pCPU->getRegister( rs1 ) == 0x80000000 ) && ( pCPU->getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
-                        {
-                           pCPU->setRegister( rd, 0 );
-                        } else
-                        {
-                           pCPU->setRegister( rd, (uint32_t)( (int32_t)pCPU->getRegister( rs1 ) % (int32_t)pCPU->getRegister( rs2 ) ) );
-                        }
-                        newPC = oldPC + 4;
+                        setRegister( rd, getRegister( rs1 ) );
+                     } else
+                     if( ( getRegister( rs1 ) == 0x80000000 ) && ( getRegister( rs2 ) == 0xffffffff ) ) // -2^LEN-1 / -1 -> overflow
+                     {
+                        setRegister( rd, 0 );
+                     } else
+                     {
+                        setRegister( rd, (uint32_t)( (int32_t)getRegister( rs1 ) % (int32_t)getRegister( rs2 ) ) );
                      }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1501,10 +1313,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1517,11 +1326,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
                {
                   case 0: // AND
                   {
-                     if( pCPU )
-                     {
-                        pCPU->setRegister( rd, pCPU->getRegister( rs1 ) & pCPU->getRegister( rs2 ) );
-                        newPC = oldPC + 4;
-                     }
+                     setRegister( rd, getRegister( rs1 ) & getRegister( rs2 ) );
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1539,17 +1345,14 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   case 1: // REMU
                   {
-                     if( pCPU )
+                     if( getRegister( rs2 ) == 0 )
                      {
-                        if( pCPU->getRegister( rs2 ) == 0 )
-                        {
-                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) );
-                        } else
-                        {
-                           pCPU->setRegister( rd, pCPU->getRegister( rs1 ) % pCPU->getRegister( rs2 ) );
-                        }
-                        newPC = oldPC + 4;
+                        setRegister( rd, getRegister( rs1 ) );
+                     } else
+                     {
+                        setRegister( rd, getRegister( rs1 ) % getRegister( rs2 ) );
                      }
+                     newPC = oldPC + 4;
 
                      if( pInstruction )
                      {
@@ -1567,10 +1370,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
                   default:
                   {
-                     if( pCPU )
-                     {
-                        pCPU->unknownOpcode();
-                     }
+                     unknownOpcode();
                      break;
                   }
                }
@@ -1579,10 +1379,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -1591,11 +1388,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
       case 0x37: // LUI
       {
-         if( pCPU )
-         {
-            pCPU->setRegister( rd, uTypeImm );
-            newPC = oldPC + 4;
-         }
+         setRegister( rd, uTypeImm );
+         newPC = oldPC + 4;
 
          if( pInstruction )
          {
@@ -1616,15 +1410,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
          {
             case 0: // BEQ
             {
-               if( pCPU )
+               if( getRegister( rs1 ) == getRegister( rs2 ) )
                {
-                  if( pCPU->getRegister( rs1 ) == pCPU->getRegister( rs2 ) )
-                  {
-                     newPC = oldPC + bTypeImm;
-                  } else
-                  {
-                     newPC = oldPC + 4;
-                  }
+                  newPC = oldPC + bTypeImm;
+               } else
+               {
+                  newPC = oldPC + 4;
                }
 
                if( pInstruction )
@@ -1644,15 +1435,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 1: // BNE
             {
-               if( pCPU )
+               if( getRegister( rs1 ) != getRegister( rs2 ) )
                {
-                  if( pCPU->getRegister( rs1 ) != pCPU->getRegister( rs2 ) )
-                  {
-                     newPC = oldPC + bTypeImm;
-                  } else
-                  {
-                     newPC = oldPC + 4;
-                  }
+                  newPC = oldPC + bTypeImm;
+               } else
+               {
+                  newPC = oldPC + 4;
                }
 
                if( pInstruction )
@@ -1672,15 +1460,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 4: // BLT
             {
-               if( pCPU )
+               if( (int32_t)getRegister( rs1 ) < (int32_t)getRegister( rs2 ) )
                {
-                  if( (int32_t)pCPU->getRegister( rs1 ) < (int32_t)pCPU->getRegister( rs2 ) )
-                  {
-                     newPC = oldPC + bTypeImm;
-                  } else
-                  {
-                     newPC = oldPC + 4;
-                  }
+                  newPC = oldPC + bTypeImm;
+               } else
+               {
+                  newPC = oldPC + 4;
                }
 
                if( pInstruction )
@@ -1700,15 +1485,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 5: // BGE
             {
-               if( pCPU )
+               if( (int32_t)getRegister( rs1 ) >= (int32_t)getRegister( rs2 ) )
                {
-                  if( (int32_t)pCPU->getRegister( rs1 ) >= (int32_t)pCPU->getRegister( rs2 ) )
-                  {
-                     newPC = oldPC + bTypeImm;
-                  } else
-                  {
-                     newPC = oldPC + 4;
-                  }
+                  newPC = oldPC + bTypeImm;
+               } else
+               {
+                  newPC = oldPC + 4;
                }
 
                if( pInstruction )
@@ -1728,15 +1510,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 6: // BLTU
             {
-               if( pCPU )
+               if( getRegister( rs1 ) < getRegister( rs2 ) )
                {
-                  if( pCPU->getRegister( rs1 ) < pCPU->getRegister( rs2 ) )
-                  {
-                     newPC = oldPC + bTypeImm;
-                  } else
-                  {
-                     newPC = oldPC + 4;
-                  }
+                  newPC = oldPC + bTypeImm;
+               } else
+               {
+                  newPC = oldPC + 4;
                }
 
                if( pInstruction )
@@ -1756,15 +1535,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             case 7: // BGEU
             {
-               if( pCPU )
+               if( getRegister( rs1 ) >= getRegister( rs2 ) )
                {
-                  if( pCPU->getRegister( rs1 ) >= pCPU->getRegister( rs2 ) )
-                  {
-                     newPC = oldPC + bTypeImm;
-                  } else
-                  {
-                     newPC = oldPC + 4;
-                  }
+                  newPC = oldPC + bTypeImm;
+               } else
+               {
+                  newPC = oldPC + 4;
                }
 
                if( pInstruction )
@@ -1784,10 +1560,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -1800,11 +1573,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
          {
             case 0: // JALR
             {
-               if( pCPU )
-               {
-                  pCPU->setRegister( rd, oldPC + 4 );
-                  newPC = ( (int32_t)pCPU->getRegister( rs1 ) + iTypeImm ) & 0xfffffffe;
-               }
+               setRegister( rd, oldPC + 4 );
+               newPC = ( (int32_t)getRegister( rs1 ) + iTypeImm ) & 0xfffffffe;
 
                if( pInstruction )
                {
@@ -1828,10 +1598,7 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
             default:
             {
-               if( pCPU )
-               {
-                  pCPU->unknownOpcode();
-               }
+               unknownOpcode();
                break;
             }
          }
@@ -1840,11 +1607,8 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
       case 0x6f: // JAL
       {
-         if( pCPU )
-         {
-            pCPU->setRegister( rd, oldPC + 4 );
-            newPC = oldPC + jTypeImm;
-         }
+         setRegister( rd, oldPC + 4 );
+         newPC = oldPC + jTypeImm;
 
          if( pInstruction )
          {
@@ -1862,18 +1626,12 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 
       default:
       {
-         if( pCPU )
-         {
-            pCPU->unknownOpcode();
-         }
+         unknownOpcode();
          break;
       }
    }
 
-   if( pCPU )
-   {
-      pCPU->m_PC = newPC;
-   }
+   m_PC = newPC;
 
    if( pInstruction )
    {
@@ -1889,14 +1647,13 @@ uint32_t RISCV::step( uint32_t oldPC, uint32_t instr, RISCV *pCPU, Instruction *
 }
 
 
-void RISCV::step()
-{
-   uint32_t instr = readMem32( m_PC );
-   Instruction disassembly;
-   step( m_PC, instr, this, &disassembly );
-}
-
-
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Invalidate an address reservation.
+\param addr Start address
+\param n Number of bytes
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::invalidateReservation( uint32_t addr, int n )
 {
    if( n < 1 )
@@ -1913,6 +1670,13 @@ void RISCV::invalidateReservation( uint32_t addr, int n )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Reserve some address(es)
+\param The first memory address to be reserved
+\param n The number of addresses
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::reserveAddr( uint32_t addr, int n )
 {
    if( n < 1 )
@@ -1926,12 +1690,21 @@ void RISCV::reserveAddr( uint32_t addr, int n )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Clear all address reservations.
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::clearAllReservations()
 {
    m_ReservedAddresses.clear();
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+*/
+/*----------------------------------------------------------------------------*/
 int RISCV::numReservedAddresses( uint32_t addr, int n ) const
 {
    if( n < 1 )
@@ -1948,24 +1721,44 @@ int RISCV::numReservedAddresses( uint32_t addr, int n ) const
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Read a byte.
+*/
+/*----------------------------------------------------------------------------*/
 uint8_t RISCV::readMem8( uint32_t address )
 {
    return( m_pMemory->readMem8( address ) );
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Read a half-word.
+*/
+/*----------------------------------------------------------------------------*/
 uint16_t RISCV::readMem16( uint32_t address )
 {
    return( m_pMemory->readMem16( address ) );
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Read a word.
+*/
+/*----------------------------------------------------------------------------*/
 uint32_t RISCV::readMem32( uint32_t address )
 {
    return( m_pMemory->readMem32( address ) );
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Write a byte.
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::writeMem8( uint32_t address, uint8_t d )
 {
    invalidateReservation( address );
@@ -1973,6 +1766,11 @@ void RISCV::writeMem8( uint32_t address, uint8_t d )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Write a half-word.
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::writeMem16( uint32_t address, uint16_t d )
 {
    invalidateReservation( address, 2 );
@@ -1980,8 +1778,148 @@ void RISCV::writeMem16( uint32_t address, uint16_t d )
 }
 
 
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Write a word.
+*/
+/*----------------------------------------------------------------------------*/
 void RISCV::writeMem32( uint32_t address, uint32_t d )
 {
    invalidateReservation( address, 4 );
    m_pMemory->writeMem32( address, d );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Constructor for class RISCV::Instruction.
+\param address Memory address of the instruction
+\param code The full binary instruction code
+\param instruction The disassembly of the opcode
+\param parameters All operands in textual form
+\param comment An optional comment with further explanations
+*/
+/*----------------------------------------------------------------------------*/
+RISCV::Instruction::Instruction( uint32_t address, uint32_t code, std::string instruction, std::vector<std::string> parameters, std::string comment )
+{
+   set( address, code, instruction, parameters, comment );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Constructor for class RISCV::Instruction.
+*/
+/*----------------------------------------------------------------------------*/
+RISCV::Instruction::Instruction()
+{
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Destructor for class RISCV::Instruction.
+*/
+/*----------------------------------------------------------------------------*/
+RISCV::Instruction::~Instruction()
+{
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Convert the instruction to a complete textual line of assembly code.
+\return The assembly code
+*/
+/*----------------------------------------------------------------------------*/
+std::string RISCV::Instruction::toString() const
+{
+   std::string r = stdformat( "{}\t{}", m_Instruction, util::join( m_Parameters, "," ) );
+   if( m_Comment.size() > 0 )
+   {
+      r = r + " # " + m_Comment;
+   }
+
+   return( r );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+*/
+/*----------------------------------------------------------------------------*/
+void RISCV::Instruction::set( uint32_t address, uint32_t code, std::string instruction, std::vector<std::string> parameters, std::string comment )
+{
+   m_Address = address;
+   m_Code = code;
+   m_Instruction = instruction;
+   m_Parameters = parameters;
+   m_Comment = comment;
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+Set the object attributes from another Instruction instance.
+\param o Reference to the other Instruction instance
+*/
+/*----------------------------------------------------------------------------*/
+void RISCV::Instruction::set( const Instruction &o )
+{
+   set( o.getAddress(), o.getCode(), o.getInstruction(), o.getParameters(), o.getComment() );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+\return Memory address of the instruction
+*/
+/*----------------------------------------------------------------------------*/
+uint32_t RISCV::Instruction::getAddress() const
+{
+   return( m_Address );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+\return The full binary instruction code
+*/
+/*----------------------------------------------------------------------------*/
+uint32_t RISCV::Instruction::getCode() const
+{
+   return( m_Code );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+\return The disassembly of the opcode
+*/
+/*----------------------------------------------------------------------------*/
+std::string RISCV::Instruction::getInstruction() const
+{
+   return( m_Instruction );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+\return All operands in textual form
+*/
+/*----------------------------------------------------------------------------*/
+std::vector<std::string> RISCV::Instruction::getParameters() const
+{
+   return( m_Parameters );
+}
+
+
+/*----------------------------------------------------------------------------*/
+/*! 2024-08-15
+\return An optional comment with further explanations
+*/
+/*----------------------------------------------------------------------------*/
+std::string RISCV::Instruction::getComment() const
+{
+   return( m_Comment );
 }
