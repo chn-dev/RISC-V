@@ -22,9 +22,9 @@ void numberToString( int number, char *pStr )
          iTail++;
          number /= 10;
       }
-   
+
       iTail--;
-   
+
       for( int iFront = isNegative ? 1 : 0; iFront < iTail; iFront++, iTail-- )
       {
          char tmp = pStr[iFront];
@@ -37,19 +37,19 @@ void numberToString( int number, char *pStr )
 
 void printString( const char *pStr )
 {
-	for( int i = 0; pStr[i]; i++ )
-	{
-	   *( (unsigned char *)0 ) = pStr[i];
-	}
+   for( int i = 0; pStr[i]; i++ )
+   {
+      *( (unsigned char *)0 ) = pStr[i];
+   }
 }
 
 
 int main( int argc, const char *argv[] )
 {
-	const char *pMsg = "Hello, world!\nI'm running from within RISC-V-Emulator.\n\n";
+   const char *pMsg = "Hello, world!\nI'm running within RISC-V-Emulator.\n\n";
    const char *pNL = "\n";
 
-	printString( pMsg );
+   printString( pMsg );
 
    for( int i = -10; i <= 10; i++ )
    {
@@ -60,5 +60,5 @@ int main( int argc, const char *argv[] )
       printString( pNL );
    }
 
-	return( 0 );
+   return( 0 );
 }

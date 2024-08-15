@@ -195,6 +195,7 @@ This method is invoked when the CPU encounters an unknown/illegal optode.
 /*----------------------------------------------------------------------------*/
 void Emulator::unknownOpcode()
 {
+   printf( "Unknown opcode found at 0x%x.\n", m_pCPU->getPC() );
    m_StopEmulation = true;
 }
 

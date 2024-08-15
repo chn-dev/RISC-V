@@ -33,6 +33,11 @@ The necessary files
 
 are all available in ./RISC-V/Demo/. Note that you need to install the riscv64-unknown-elf tools for cross-compilation before building the Demo.
 
+Under Ubuntu, you can use the following commands to install them:
+
+    sudo apt-get install gcc-riscv64-unknown-elf
+    sudo apt-get install binutils-riscv64-unknown-elf
+
 ### Building the Demo
 
     cd /path/to/RISC-V/Demo
@@ -40,9 +45,38 @@ are all available in ./RISC-V/Demo/. Note that you need to install the riscv64-u
 
 This should create Demo.bin.
 
-### Invoking RISC-V-Emulator with the Demo
+### Invoking RISC-V-Emulator with the Demo program
 
     cd /path/to/RISC-V/
     ./build/RISC-V-Emulator ./Demo/Demo.bin
 
-That's it.
+That's it. If everything works as intended, the output should look like this:
+
+    chn@chnX200:~/Programming/RISC-V$ ./build/RISC-V-Emulator ./Demo/Demo.bin
+    Hello, world!
+    I'm running from within RISC-V-Emulator.
+    
+    -10
+    -9
+    -8
+    -7
+    -6
+    -5
+    -4
+    -3
+    -2
+    -1
+    0
+    1
+    2
+    3
+    4
+    5
+    6
+    7
+    8
+    9
+    10
+    Unknown opcode found at 0x0.
+
+In Emulator.cpp you can see that writing a byte to memory address 0x0 causes the Emulator to output that byte as an ASCII character to its stdout. That's how the Demo program can output its text without any operating system.
