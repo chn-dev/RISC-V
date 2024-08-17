@@ -167,9 +167,9 @@ void RISCV::step( Instruction *pInstruction )
                       ( ( ( (int32_t)instr >> 25 ) & 0b111111     ) << 5  ) | // imm[10:5]
                       ( ( ( (int32_t)instr >> 8  ) & 0b1111       ) << 1  ) | // imm[4:1]
                       ( ( ( (int32_t)instr >> 7  ) & 1            ) << 11 );  // imm[11]
-   // Propagate the sign bit of the J-Type immediate
+   // Propagate the sign bit of the B-Type immediate
    if( instr & 0x80000000 )
-      bTypeImm |= 0b11111111111 << 21;
+      bTypeImm |= 0b11111111111111111111 << 12;
 
    uint32_t newPC = oldPC;
 
